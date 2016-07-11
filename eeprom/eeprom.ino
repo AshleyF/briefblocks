@@ -44,25 +44,33 @@ byte readEEPROM(byte device, unsigned int address) {
   if (Wire.available()) {
     data = Wire.read();
     Serial.println(data, HEX);
-    switch (data) {
-      case 0x0a: R(); break;
-      case 0x0b: G(); break;
-      case 0x0c: B(); break;
-      case 0x0d: C(); break;
-      case 0x0e: M(); break;
-      case 0x0f: Y(); break;
-    }
+    //switch (data) {
+    //  case 0x0a: R(); break;
+    //  case 0x0b: G(); break;
+    //  case 0x0c: B(); break;
+    //  case 0x0d: C(); break;
+    //  case 0x0e: M(); break;
+    //  case 0x0f: Y(); break;
+    //}
   } else {
     Serial.println("?");
-    K();
+    //K();
   }
   return data;
 }
 
-void writeToChip(byte address, byte value) {
+void writeToChip(byte device, byte value) {
   Serial.print("Write to EEPROM ");
-  Serial.println(address);
-  writeEEPROM(address, 0, value);
+  Serial.print(device);
+  Serial.print(" -> ");
+  Serial.println(value);
+  writeEEPROM(device, 0, value);
+}
+
+void readFromChip(byte device) {
+  Serial.print("Read from EEPROM ");
+  Serial.println(device);
+  readEEPROM(device, 0);
 }
 
 void reset() {
@@ -80,21 +88,21 @@ void pulse() {
   delay(490);
 }
 
-void readFromChip() {
-  Serial.println("Chip 1");
-  readEEPROM(EEPROM_ADDRESS_1, 0);
-  Serial.println("Chip 0");
+void readFromBoard() {
+  Serial.print("Chip 0      Main: ");
   if (readEEPROM(EEPROM_ADDRESS_0, 0)) {
+    Serial.print("Chip 1 Parameter: ");
+    readEEPROM(EEPROM_ADDRESS_1, 0);
     pulse();
-    readFromChip();
+    readFromBoard();
   }
 }
 
 void readSequence() {
-  K();
+  //K();
   reset();
   delay(1000);
-  readFromChip();
+  readFromBoard();
 }
 
 void setup()
@@ -109,13 +117,41 @@ void setup()
   pinMode(PULSE_PIN, OUTPUT);
   digitalWrite(RESET_PIN, HIGH);
   digitalWrite(PULSE_PIN, HIGH);
-  //writeToChip(EEPROM_ADDRESS_0, 0x0f);
 }
 
+int v = 0x4C;
+
 void loop() {
-  readSequence(); // test
-  //readFromChip();
+  //readSequence(); // test
+  //readFromBoard();
   //Serial.print(" ");
   //readFromChip();
   //Serial.println("");
+  //Serial.println("");
+  //Serial.println("");
+  //delay(4000);
+  
+  char c = Serial.read();
+  if (c == 'p') {
+    Serial.print("Programming: ");
+    Serial.println(v);
+    writeToChip(EEPROM_ADDRESS_0, v);
+  }
+  if (c == 'r') {
+    Serial.print("Reading: ");
+    readFromChip(EEPROM_ADDRESS_0);
+  }
+  if (c == 'n') {
+    v++;
+    Serial.print("Value: ");
+    Serial.println(v);
+  }
+  if (c == 'b') {
+    v--;
+    Serial.print("Value: ");
+    Serial.println(v);
+  }
+  if (c == 's') {
+    readSequence(); // test    
+  }
 }
