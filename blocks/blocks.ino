@@ -1,7 +1,43 @@
-#define MEM_SIZE 512
-#define MAX_DATA_STACK 8
+#define MIN_X -100
+#define MAX_X  100
+#define MIN_Y -100
+#define MAX_Y  100
+
+#define MEM_SIZE         512
+#define MAX_DATA_STACK   8
 #define MAX_RETURN_STACK 8
-#define MAX_PRIMITIVES 128
+#define MAX_BLOCKS       256
+#define MAX_PRIMITIVES   32
+
+#define RET     0
+#define LIT     1
+#define DIG0    2
+#define DIG1    3
+#define DIG2    4
+#define DIG3    5
+#define DIG4    6
+#define DIG5    7
+#define DIG6    8
+#define DIG7    9
+#define DIG8    10
+#define DIG9    11
+#define MOD     12
+#define MUL     13
+#define ADD     14
+#define SUB     15
+#define SHOW    16
+#define DIV     17
+#define BACK    18
+#define CENTER  19
+#define FORWARD 20
+#define GO      21
+#define HEAD    22
+#define LEFT    23
+#define RIGHT   24
+#define TURN    25
+#define NOP     31
+
+#define DEF_BLOCK 58 // define block ID (':')
 
 uint8_t memory[MEM_SIZE];
 uint8_t mem(int16_t address) { return memory[address]; } // TODO: bounds check
@@ -19,6 +55,8 @@ int16_t rpop() { return *r--; } // TODO: underflow check
 
 void (*instructions[MAX_PRIMITIVES])(); // instruction function table
 void bind(uint8_t i, void (*f)()) { instructions[i] = f; }
+
+int16_t blocks[MAX_BLOCKS]; // block call table
 
 int16_t p; // program counter (VM instruction pointer)
 
@@ -51,26 +89,53 @@ double theta = 0.0;
 double x = 0.0;
 double y = 0.0;
 
-void pose() { Serial.print("Pose: "); Serial.print((int)(theta / PI * 180.0 + 0.5)); Serial.print(" "); Serial.print((int)(x + 0.5)); Serial.print(" "); Serial.println((int)(y + 0.5)); }
+double lastX = 0.0;
+double lastY = 0.0;
 
-void go() { Serial.println("GO"); y = pop(); x = pop(); pose(); }
-void head() { Serial.println("HEAD"); theta = pop(); pose();}
+void moveCNC(double dx, double dy) {
+  Serial.print("Relative Move: ");
+  Serial.print(dx);
+  Serial.print(" ");
+  Serial.println(dy);
+}
+
+void update() {
+  Serial.print("Pose: ");
+  Serial.print((int)(theta / PI * 180.0 + 0.5));
+  Serial.print(" ");
+  Serial.print((int)(x + 0.5));
+  Serial.print(" ");
+  Serial.println((int)(y + 0.5));
+  // enforce physical bounds
+  double xx = min(MAX_X, max(MIN_X, x));
+  double yy = min(MAX_Y, max(MIN_Y, y));
+  double dx = xx - lastX;
+  double dy = yy - lastY;
+  lastX = xx;
+  lastY = yy;
+  moveCNC(dx, dy);
+}
+
+void go() { Serial.println("GO"); y = pop(); x = pop(); update(); }
+void head() { Serial.println("HEAD"); theta = pop(); update();}
 void center() { Serial.println(":CENTER"); lit(); lit(); lit(); go(); head(); } // TODO: secondary word?
-void turn() { Serial.println("TURN"); theta += pop() / 180.0 * PI; pose(); }
+void turn() { Serial.println("TURN"); theta += pop() / 180.0 * PI; update(); }
 void left() { Serial.println(":LEFT"); neg(); turn(); } // TODO: secondary word?
 void right() { Serial.println(":RIGHT"); turn(); } // TODO: secondary word?
-void forward() { Serial.println("FORWARD"); double d = pop(); x += d * cos(theta); y += d * sin(theta); pose(); }
+void forward() { Serial.println("FORWARD"); double d = pop(); x += d * cos(theta); y += d * sin(theta); update(); }
 void back() { Serial.println(":BACK"); neg(); forward(); } // TODO: secondary word?
 
 void run() {
   int16_t i;
   do {
     i = mem(p++);
-    if ((i & 0x80) == 0) { // instruction?
+    Serial.print("Instruction: ");
+    Serial.println(i, DEC);
+    if ((i & 0x40) == 0) { // instruction? (7th bit set is a call)
       instructions[i](); // execute
     } else { // address to call
       if (mem(p + 1) != 0) rpush(p + 1); // push return address if not followed by return (TCO)
-      p = ((i << 8) & 0x7f00) | mem(p); // jump
+      p = ((i << 8) & 0x3f00) | mem(p); // jump (address is lower 6 bits)
     }
   } while (p >= 0); // note: -1 initially pushed to return stack
 }
@@ -82,154 +147,120 @@ void exec(int16_t address) {
   run();
 }
 
+uint16_t dict = 0;
+uint16_t here = 0;
+void append(uint8_t b) {
+    Serial.print("Append: ");
+    Serial.println(b, DEC);
+    memset(here++, b);
+}
+
+uint16_t define() {
+  uint16_t w = dict;
+  dict = here;
+  Serial.print("Define - address: ");
+  Serial.println(dict, DEC);
+  return w;
+}
+
+uint16_t defineOp(uint8_t op) {
+  append(op);
+  append(RET);
+  return define();
+}
+
 bool readBlocks() {
-  int count = 0;
-  while (count < MEM_SIZE && Serial.available() > 0) { // TODO: error when exceeding MAX_INSTRUCTIONS?
-    byte b = Serial.read();
-    memset(count++, b);
+  here = dict;
+  while (here < MEM_SIZE && Serial.available() > 0) { // TODO: error when exceeding MAX_INSTRUCTIONS?
+    uint8_t b = Serial.read();
     Serial.print("Read: ");
     Serial.println(b, DEC);
+    if (b == DEF_BLOCK) {
+      // define new word
+      uint8_t d = Serial.read();
+      Serial.print("Define: ");
+      Serial.println(d, DEC);
+      append(RET);
+      blocks[d] = define();
+      return;
+    } else {
+      int16_t addr = blocks[b];
+      Serial.print("Call: ");
+      Serial.println(addr, DEC);
+      append(addr >> 8 | 0x40);
+      append(addr & 0xff);
+    }
     delay(50); // enforce reading in batch
   }
-  memset(count, 0);
-  return count > 0;
+  if (here - dict > 0) {
+    append(RET);
+    Serial.print("Execute blocks - address: ");
+    Serial.println(dict, DEC);
+    exec(dict);
+  }
 }
 
 void setup() {
   Serial.begin(9600);
-  bind(0,   ret);     // 
-  bind(1,   nop);     // 
-  bind(2,   nop);     // 
-  bind(3,   nop);     // 
-  bind(4,   nop);     // 
-  bind(5,   nop);     // 
-  bind(6,   nop);     // 
-  bind(7,   nop);     // 
-  bind(8,   nop);     // 
-  bind(9,   nop);     // 
-  bind(10,  nop);     // 
-  bind(11,  nop);     // 
-  bind(12,  nop);     // 
-  bind(13,  nop);     // 
-  bind(14,  nop);     // 
-  bind(15,  nop);     // 
-  bind(16,  nop);     // 
-  bind(17,  nop);     // 
-  bind(18,  nop);     // 
-  bind(19,  nop);     // 
-  bind(20,  nop);     // 
-  bind(21,  nop);     // 
-  bind(22,  nop);     // 
-  bind(23,  nop);     // 
-  bind(24,  nop);     // 
-  bind(25,  nop);     // 
-  bind(26,  nop);     // 
-  bind(27,  nop);     // 
-  bind(28,  nop);     // 
-  bind(29,  nop);     // 
-  bind(30,  nop);     // 
-  bind(31,  nop);     // 
-  bind(32,  nop);     // 
-  bind(33,  nop);     // 
-  bind(34,  nop);     // 
-  bind(35,  lit);     // #
-  bind(36,  nop);     // 
-  bind(37,  mod);     // %
-  bind(38,  nop);     // 
-  bind(39,  nop);     // 
-  bind(40,  nop);     // 
-  bind(41,  nop);     // 
-  bind(42,  mul);     // *
-  bind(43,  add);     // +
-  bind(44,  nop);     // 
-  bind(45,  sub);     // -
-  bind(46,  show);    // .
-  bind(47,  div);     // /
-  bind(48,  zero);    // 0
-  bind(49,  one);     // 1
-  bind(50,  two);     // 2
-  bind(51,  three);   // 3
-  bind(52,  four);    // 4
-  bind(53,  five);    // 5
-  bind(54,  six);     // 6
-  bind(55,  seven);   // 7
-  bind(56,  eight);   // 8
-  bind(57,  nine);    // 9
-  bind(58,  nop);     // 
-  bind(59,  nop);     // 
-  bind(60,  nop);     // 
-  bind(61,  nop);     // 
-  bind(62,  nop);     // 
-  bind(63,  nop);     // 
-  bind(64,  nop);     // 
-  bind(65,  nop);     // 
-  bind(66,  nop);     // 
-  bind(67,  nop);     // 
-  bind(68,  nop);     // 
-  bind(69,  nop);     // 
-  bind(70,  nop);     // 
-  bind(71,  nop);     // 
-  bind(72,  nop);     // 
-  bind(73,  nop);     // 
-  bind(74,  nop);     // 
-  bind(75,  nop);     // 
-  bind(76,  nop);     // 
-  bind(77,  nop);     // 
-  bind(78,  nop);     // 
-  bind(79,  nop);     // 
-  bind(80,  nop);     // 
-  bind(81,  nop);     // 
-  bind(82,  nop);     // 
-  bind(83,  nop);     // 
-  bind(84,  nop);     // 
-  bind(85,  nop);     // 
-  bind(86,  nop);     // 
-  bind(87,  nop);     // 
-  bind(88,  nop);     // 
-  bind(89,  nop);     // 
-  bind(90,  nop);     // 
-  bind(91,  nop);     // 
-  bind(92,  nop);     // 
-  bind(93,  nop);     // 
-  bind(94,  nop);     // 
-  bind(95,  nop);     // 
-  bind(96,  nop);     // 
-  bind(97,  nop);     // 
-  bind(98,  back);    // b
-  bind(99,  center);  // c
-  bind(100, nop);     // 
-  bind(101, nop);     // 
-  bind(102, forward); // f
-  bind(103, go);      // g
-  bind(104, head);    // h
-  bind(105, nop);     // 
-  bind(106, nop);     // 
-  bind(107, nop);     // 
-  bind(108, left);    // l
-  bind(109, nop);     // 
-  bind(110, nop);     // 
-  bind(111, nop);     // 
-  bind(112, nop);     // 
-  bind(113, nop);     // 
-  bind(114, right);   // r
-  bind(115, nop);     // 
-  bind(116, turn);    // t
-  bind(117, nop);     // 
-  bind(118, nop);     // 
-  bind(119, nop);     // 
-  bind(120, nop);     // 
-  bind(121, nop);     // 
-  bind(122, nop);     // 
-  bind(123, nop);     // 
-  bind(124, nop);     // 
-  bind(125, nop);     // 
-  bind(126, nop);     // 
-  bind(127, nop);     // 
+  // initialize primitive instructions
+  for (int i = 0; i < MAX_PRIMITIVES; i++) bind(i, nop);
+  bind(RET,     ret);
+  bind(LIT,     lit);
+  bind(DIG0,    zero);
+  bind(DIG1,    one);
+  bind(DIG2,    two);
+  bind(DIG3,    three);
+  bind(DIG4,    four);
+  bind(DIG5,    five);
+  bind(DIG6,    six);
+  bind(DIG7,    seven);
+  bind(DIG8,    eight);
+  bind(DIG9,    nine);
+  bind(MOD,     mod);
+  bind(MUL,     mul);
+  bind(ADD,     add);
+  bind(SUB,     sub);
+  bind(SHOW,    show);
+  bind(DIV,     div);
+  bind(BACK,    back);
+  bind(CENTER,  center);
+  bind(FORWARD, forward);
+  bind(GO,      go);
+  bind(HEAD,    head);
+  bind(LEFT,    left);
+  bind(RIGHT,   right);
+  bind(TURN,    turn);
+  bind(NOP,     nop);
+  // initialize block call table
+  for (int i = 0; i < MAX_BLOCKS; i++) blocks[i] = 0; // nop
+  blocks[0]   = defineOp(NOP);     // nop catch-all
+  blocks[35]  = defineOp(LIT);     // #
+  blocks[37]  = defineOp(MOD);     // %
+  blocks[42]  = defineOp(MUL);     // *
+  blocks[43]  = defineOp(ADD);     // +
+  blocks[45]  = defineOp(SUB);     // -
+  blocks[46]  = defineOp(SHOW);    // .
+  blocks[47]  = defineOp(DIV);     // /
+  blocks[48]  = defineOp(DIG0);    // 0
+  blocks[49]  = defineOp(DIG1);    // 1
+  blocks[50]  = defineOp(DIG2);    // 2
+  blocks[51]  = defineOp(DIG3);    // 3
+  blocks[52]  = defineOp(DIG4);    // 4
+  blocks[53]  = defineOp(DIG5);    // 5
+  blocks[54]  = defineOp(DIG6);    // 6
+  blocks[55]  = defineOp(DIG7);    // 7
+  blocks[56]  = defineOp(DIG8);    // 8
+  blocks[57]  = defineOp(DIG9);    // 9
+  blocks[98]  = defineOp(BACK);    // b
+  blocks[99]  = defineOp(CENTER);  // c
+  blocks[102] = defineOp(FORWARD); // f
+  blocks[103] = defineOp(GO);      // g
+  blocks[104] = defineOp(HEAD);    // h
+  blocks[108] = defineOp(LEFT);    // l
+  blocks[114] = defineOp(RIGHT);   // r
+  blocks[116] = defineOp(TURN);    // t
 }
 
 void loop() {
-  if (readBlocks()) {
-    Serial.println("Execute blocks");
-    exec(0);
-  }
+  readBlocks(); // TODO: trigger with button press
 }
