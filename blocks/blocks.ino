@@ -16,7 +16,7 @@
 #define MIN_Y -100
 #define MAX_Y  100
 
-#define MEM_SIZE         512
+#define MEM_SIZE         768
 #define MAX_DATA_STACK   8
 #define MAX_RETURN_STACK 8
 #define MAX_BLOCKS       256
@@ -50,7 +50,7 @@
 #define TURN    25
 #define NOP     31
 
-#define DEF_BLOCK 58 // define block ID (':')
+#define DEF_BLOCK 0x5B // define block ID (':' == 58)
 
 uint8_t memory[MEM_SIZE];
 uint8_t mem(int16_t address) { return memory[address]; } // TODO: bounds check
@@ -98,7 +98,7 @@ void div() { Serial.println("DIV"); push(pop() / pop()); }
 void mod() { Serial.println("MOD"); push(pop() % pop()); }
 void neg() { Serial.println("NEG"); push(-pop()); }
 
-double theta = 0.0;
+double theta = 0.0; // degrees
 double x = 0.0;
 double y = 0.0;
 
@@ -114,7 +114,7 @@ void moveCNC(double dx, double dy) {
 
 void update() {
   Serial.print("    Pose: ");
-  Serial.print((int)(theta / PI * 180.0 + 0.5));
+  Serial.print((int)theta);
   Serial.print(" ");
   Serial.print((int)(x + 0.5));
   Serial.print(" ");
@@ -132,10 +132,10 @@ void update() {
 void go() { Serial.println("GO"); y = pop(); x = pop(); update(); }
 void head() { Serial.println("HEAD"); theta = pop(); update();}
 void center() { Serial.println(":CENTER"); lit(); lit(); go(); lit(); head(); } // TODO: secondary word?
-void turn() { Serial.println("TURN"); theta += pop() / 180.0 * PI; update(); }
+void turn() { Serial.println("TURN"); theta += pop(); update(); }
 void left() { Serial.println(":LEFT"); neg(); turn(); } // TODO: secondary word?
 void right() { Serial.println(":RIGHT"); turn(); } // TODO: secondary word?
-void forward() { Serial.println("FORWARD"); double d = pop(); x += d * cos(theta); y += d * sin(theta); update(); }
+void forward() { Serial.println("FORWARD"); double d = pop(); x += d * cos(theta / 180.0 * PI); y += d * sin(theta / 180.0 * PI); update(); }
 void back() { Serial.println(":BACK"); neg(); forward(); } // TODO: secondary word?
 
 void run() {
@@ -265,8 +265,8 @@ bool readBlocks() {
     Serial.println(b, HEX);
     if (b == DEF_BLOCK) {
       // define new word
-      uint8_t d = Serial.read();
-      Serial.print("    Define: ");
+      uint8_t d = readNextBlock();
+      Serial.print("DEFINE: ");
       Serial.println(d, HEX);
       append(RET);
       blocks[d] = define();
@@ -359,10 +359,37 @@ void setup() {
   Serial.println("INITIALIZED (CONSOLE MODE)");
 #else
   // physical block definitions
-  blocks[0x1b] = defineOp(FORWARD); // Forward
-  blocks[0x5b] = defineOp(CENTER); // Center
-  append(LIT); append(DIG1); append(DIG0); append(RET); blocks[0x38] = define(); // 10
-  append(LIT); append(DIG2); append(DIG0); append(RET); blocks[0x6b] = define(); // 20
+  blocks[0x1b] = blocks[0x0f] = defineOp(FORWARD); // Forward
+  blocks[0x0d] = defineOp(LEFT); // Forward
+  blocks[0x3e] = defineOp(CENTER); // Center
+  append(LIT); append(DIG1); append(RET); blocks[0x1c] = define(); // 1
+  append(LIT); append(DIG2); append(RET); blocks[0x2c] = define(); // 2
+  append(LIT); append(DIG3); append(RET); blocks[0x0c] = define(); // 3
+  append(LIT); append(DIG4); append(RET); blocks[0x36] = define(); // 4
+  append(LIT); append(DIG5); append(RET); blocks[0x22] = define(); // 5
+  append(LIT); append(DIG6); append(RET); blocks[0x18] = define(); // 6
+  append(LIT); append(DIG7); append(RET); blocks[0x24] = define(); // 7
+  append(LIT); append(DIG8); append(RET); blocks[0x5f] = define(); // 8
+  append(LIT); append(DIG9); append(RET); blocks[0x62] = define(); // 9
+  append(LIT); append(DIG1); append(DIG0); append(RET); blocks[0x38] = blocks[0x6e] = blocks[0x63] = define(); // 10
+  append(LIT); append(DIG1); append(DIG2); append(RET); blocks[0x28] = blocks[0x12] = define(); // 12
+  append(LIT); append(DIG1); append(DIG5); append(RET); blocks[0x16] = blocks[0x14] = define(); // 15
+  append(LIT); append(DIG1); append(DIG8); append(RET); blocks[0x2e] = blocks[0x1e] = define(); // 18
+  append(LIT); append(DIG2); append(DIG0); append(RET); blocks[0x6b] = blocks[0x67] = define(); // 20
+  append(LIT); append(DIG2); append(DIG4); append(RET); blocks[0x0a] = blocks[0x02] = define(); // 24
+  append(LIT); append(DIG3); append(DIG0); append(RET); blocks[0x65] = blocks[0x5d] = blocks[0x66] = define(); // 30
+  append(LIT); append(DIG3); append(DIG6); append(RET); blocks[0x5e] = blocks[0x26] = define(); // 36
+  append(LIT); append(DIG4); append(DIG0); append(RET); blocks[0x6f] = blocks[0x1a] = blocks[0x7a] = define(); // 40
+  append(LIT); append(DIG4); append(DIG5); append(RET); blocks[0x06] = blocks[0x69] = define(); // 45
+  append(LIT); append(DIG5); append(DIG0); append(RET); blocks[0x6c] = blocks[0x3c] = define(); // 50
+  append(LIT); append(DIG6); append(DIG0); append(RET); blocks[0x04] = blocks[0x6a] = define(); // 60
+  append(LIT); append(DIG7); append(DIG0); append(RET); blocks[0x6d] = blocks[0x2a] = define(); // 70
+  append(LIT); append(DIG7); append(DIG2); append(RET); blocks[0x68] = blocks[0x20] = define(); // 72
+  append(LIT); append(DIG8); append(DIG0); append(RET); blocks[0x60] = blocks[0x30] = define(); // 80
+  append(LIT); append(DIG9); append(DIG0); append(RET); blocks[0x10] = blocks[0x08] = blocks[0x34] = define(); // 90
+  append(LIT); append(DIG1); append(DIG8); append(DIG0); append(RET); blocks[0x32] = blocks[0x0e] = define(); // 180
+  append(LIT); append(DIG1); append(DIG2); append(DIG0); append(RET); blocks[0x3a] = blocks[0x61] = define(); // 120
+
   delay(2000);
   Serial.println("INITIALIZED (NORMAL MODE)");
 #endif
