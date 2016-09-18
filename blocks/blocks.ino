@@ -1,22 +1,39 @@
 #include <Arduino.h>
 #include <Wire.h>
+#include <AccelStepper.h>
 
 //#define CONSOLE_MODE
+#define CNC
+
+#define HALF_STEP 8
+#define MOTOR_PIN1 5
+#define MOTOR_PIN2 6
+#define MOTOR_PIN3 7
+#define MOTOR_PIN4 8
+#define MOTOR_PIN5 9
+#define MOTOR_PIN6 10
+#define MOTOR_PIN7 11
+#define MOTOR_PIN8 12
+#define MM 100.0
+#define STEPPER_SPEED 1000 // steps per second
+
+AccelStepper stepperX(HALF_STEP, MOTOR_PIN1, MOTOR_PIN3, MOTOR_PIN2, MOTOR_PIN4);
+AccelStepper stepperY(HALF_STEP, MOTOR_PIN5, MOTOR_PIN7, MOTOR_PIN6, MOTOR_PIN8);
 
 #define EEPROM_ADDRESS_0 (byte)0x50 // 1010000
 #define EEPROM_ADDRESS_1 (byte)0x51 // 1010001
 
-#define RESET_PIN 7
-#define PULSE_PIN 8
+#define RESET_PIN 0
+#define PULSE_PIN 1
 #define BUTTON 4
 #define LED 13
 
-#define MIN_X -100
-#define MAX_X  100
-#define MIN_Y -100
-#define MAX_Y  100
+#define MIN_X -1000
+#define MAX_X  1000
+#define MIN_Y -1000
+#define MAX_Y  1000
 
-#define MEM_SIZE         768
+#define MEM_SIZE         512
 #define MAX_DATA_STACK   8
 #define MAX_RETURN_STACK 8
 #define MAX_BLOCKS       256
@@ -48,9 +65,11 @@
 #define LEFT    23
 #define RIGHT   24
 #define TURN    25
+#define TIMES   26
 #define NOP     31
 
 #define DEF_BLOCK 0x5B // define block ID (':' == 58)
+#define TIMES_BLOCK0 0x19
 
 uint8_t memory[MEM_SIZE];
 uint8_t mem(int16_t address) { return memory[address]; } // TODO: bounds check
@@ -110,6 +129,34 @@ void moveCNC(double dx, double dy) {
   Serial.print(dx);
   Serial.print(" ");
   Serial.println(dy);
+#ifdef CNC
+  int distanceX = dx * MM;
+  int distanceY = dy * MM;
+  long stepperSpeedX = STEPPER_SPEED;
+  long stepperSpeedY = STEPPER_SPEED;
+  if (abs(distanceX) >= abs(distanceY)) {
+    stepperSpeedY = long(STEPPER_SPEED) * long(abs(distanceY)) / long(abs(distanceX));
+  } else {
+    stepperSpeedX = long(STEPPER_SPEED) * long(abs(distanceX)) / long(abs(distanceY));
+  }
+  if (stepperSpeedX == 0) stepperSpeedX = 1;
+  if (stepperSpeedY == 0) stepperSpeedY = 1;
+  Serial.print("Stepper speeds: ");
+  Serial.print(stepperSpeedX);
+  Serial.println(stepperSpeedY);
+  stepperX.move(distanceX);
+  stepperY.move(distanceY);
+  int stepsX = stepperX.distanceToGo();
+  int stepsY = stepperY.distanceToGo();
+  while (stepsX != 0 || stepsY != 0) {
+    stepperX.setSpeed(stepperSpeedX);
+    stepperY.setSpeed(stepperSpeedY);
+    stepperX.runSpeedToPosition();
+    stepperY.runSpeedToPosition();
+    stepsX = stepperX.distanceToGo();
+    stepsY = stepperY.distanceToGo();
+  }
+#endif
 }
 
 void update() {
@@ -137,6 +184,28 @@ void left() { Serial.println(":LEFT"); neg(); turn(); } // TODO: secondary word?
 void right() { Serial.println(":RIGHT"); turn(); } // TODO: secondary word?
 void forward() { Serial.println("FORWARD"); double d = pop(); x += d * cos(theta / 180.0 * PI); y += d * sin(theta / 180.0 * PI); update(); }
 void back() { Serial.println(":BACK"); neg(); forward(); } // TODO: secondary word?
+void times() {
+  Serial.print("TIMES INSTRUCTION: ");
+  Serial.print("P: ");
+  Serial.println(p);
+  int16_t pp = p - 1;
+  while (pp >= 0 && mem(pp--) != LIT); // assumes previous LIT
+  pp--; // to CALL
+  Serial.print("PP: ");
+  Serial.println(pp);
+  if (pp > 0) {
+    int16_t save = mem(pp);
+    memset(pp, RET); // temporarily replace with RET
+    int16_t addr = pop();
+    int16_t x = pop();
+    for (int i = 0; i < x - 1; i++) { // -1 because it's done once before getting to TIMES block
+      Serial.print("REPEAT: ");
+      Serial.println(i);
+      call(addr);
+    }
+    memset(pp, save); // replace call
+  }
+}
 
 void run() {
   int16_t i;
@@ -154,10 +223,22 @@ void run() {
 }
 
 void exec(int16_t address) {
+  Serial.print("EXEC: ");
+  Serial.println(address);
   r = rstack - 1; // reset return stack
   p = address;
   rpush(-1); // causing run() to fall through upon completion
   run();
+}
+
+void call(int16_t address) {
+  Serial.print("CALL: ");
+  Serial.println(address);
+  int16_t pp = p;
+  rpush(-1); // causing run() to fall through upon completion
+  p = address;
+  run();
+  p = pp;
 }
 
 uint16_t dict = 0;
@@ -271,13 +352,22 @@ bool readBlocks() {
       append(RET);
       blocks[d] = define();
       return;
-    } else {
-      int16_t addr = blocks[b];
-      Serial.print("    Call: ");
-      Serial.println(addr, DEC);
-      append(addr >> 8 | 0x40);
-      append(addr & 0xff);
+    } else if (b == TIMES_BLOCK0) {
+      Serial.print("TIMES BLOCK: ");
+      Serial.println(dict);
+      append(LIT);
+      int16_t h = dict / 100;
+      append(h + DIG0); // TODO: assumes three decimal digits max
+      append((dict - h * 100) / 10 + DIG0);
+      append(dict % 10 + DIG0);
+      append(TIMES);
+      continue;
     }
+    int16_t addr = blocks[b];
+    Serial.print("    Call: ");
+    Serial.println(addr, DEC);
+    append(addr >> 8 | 0x40);
+    append(addr & 0xff);
   } while(here < MEM_SIZE); // TODO: error when exceeding MAX_INSTRUCTIONS?
   if (here - dict > 0) {
     append(RET);
@@ -296,6 +386,8 @@ void setup() {
   pinMode(PULSE_PIN, OUTPUT);
   Serial.begin(9600);
   Wire.begin();
+  stepperX.setMaxSpeed(STEPPER_SPEED);
+  stepperY.setMaxSpeed(STEPPER_SPEED);
   pulse();
   // initialize primitive instructions
   for (int i = 0; i < MAX_PRIMITIVES; i++) bind(i, nop);
@@ -325,6 +417,7 @@ void setup() {
   bind(LEFT,    left);
   bind(RIGHT,   right);
   bind(TURN,    turn);
+  bind(TIMES,   times);
   bind(NOP,     nop);
   // initialize block call table
   for (int i = 0; i < MAX_BLOCKS; i++) blocks[i] = 0; // nop
@@ -360,7 +453,7 @@ void setup() {
 #else
   // physical block definitions
   blocks[0x1b] = blocks[0x0f] = defineOp(FORWARD); // Forward
-  blocks[0x0d] = defineOp(LEFT); // Forward
+  blocks[0x0d] = defineOp(LEFT); // Left
   blocks[0x3e] = defineOp(CENTER); // Center
   append(LIT); append(DIG1); append(RET); blocks[0x1c] = define(); // 1
   append(LIT); append(DIG2); append(RET); blocks[0x2c] = define(); // 2
