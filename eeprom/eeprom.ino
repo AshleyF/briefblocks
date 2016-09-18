@@ -3,8 +3,8 @@
 
 #define EEPROM_ADDRESS_0 (byte)0x50 // 1010000
 #define EEPROM_ADDRESS_1 (byte)0x51 // 1010001
-#define RESET_PIN 0
-#define PULSE_PIN 1
+#define RESET_PIN 7
+#define PULSE_PIN 8
 
 #define RED   12
 #define GREEN 14

@@ -1,3 +1,16 @@
+#include <Arduino.h>
+#include <Wire.h>
+
+//#define CONSOLE_MODE
+
+#define EEPROM_ADDRESS_0 (byte)0x50 // 1010000
+#define EEPROM_ADDRESS_1 (byte)0x51 // 1010001
+
+#define RESET_PIN 7
+#define PULSE_PIN 8
+#define BUTTON 4
+#define LED 13
+
 #define MIN_X -100
 #define MAX_X  100
 #define MIN_Y -100
@@ -60,7 +73,7 @@ int16_t blocks[MAX_BLOCKS]; // block call table
 
 int16_t p; // program counter (VM instruction pointer)
 
-void ret() { Serial.println("RETURN"); p = rpop(); }
+void ret() { Serial.println("    RETURN"); p = rpop(); }
 
 void nop() { Serial.println("NOP"); }
 
@@ -93,14 +106,14 @@ double lastX = 0.0;
 double lastY = 0.0;
 
 void moveCNC(double dx, double dy) {
-  Serial.print("Relative Move: ");
+  Serial.print("    Relative Move: ");
   Serial.print(dx);
   Serial.print(" ");
   Serial.println(dy);
 }
 
 void update() {
-  Serial.print("Pose: ");
+  Serial.print("    Pose: ");
   Serial.print((int)(theta / PI * 180.0 + 0.5));
   Serial.print(" ");
   Serial.print((int)(x + 0.5));
@@ -118,7 +131,7 @@ void update() {
 
 void go() { Serial.println("GO"); y = pop(); x = pop(); update(); }
 void head() { Serial.println("HEAD"); theta = pop(); update();}
-void center() { Serial.println(":CENTER"); lit(); lit(); lit(); go(); head(); } // TODO: secondary word?
+void center() { Serial.println(":CENTER"); lit(); lit(); go(); lit(); head(); } // TODO: secondary word?
 void turn() { Serial.println("TURN"); theta += pop() / 180.0 * PI; update(); }
 void left() { Serial.println(":LEFT"); neg(); turn(); } // TODO: secondary word?
 void right() { Serial.println(":RIGHT"); turn(); } // TODO: secondary word?
@@ -129,7 +142,7 @@ void run() {
   int16_t i;
   do {
     i = mem(p++);
-    Serial.print("Instruction: ");
+    Serial.print("    Instruction: ");
     Serial.println(i, DEC);
     if ((i & 0x40) == 0) { // instruction? (7th bit set is a call)
       instructions[i](); // execute
@@ -150,7 +163,7 @@ void exec(int16_t address) {
 uint16_t dict = 0;
 uint16_t here = 0;
 void append(uint8_t b) {
-    Serial.print("Append: ");
+    Serial.print("    Append: ");
     Serial.println(b, DEC);
     memset(here++, b);
 }
@@ -158,7 +171,7 @@ void append(uint8_t b) {
 uint16_t define() {
   uint16_t w = dict;
   dict = here;
-  Serial.print("Define - address: ");
+  Serial.print("    Define - address: ");
   Serial.println(dict, DEC);
   return w;
 }
@@ -169,39 +182,121 @@ uint16_t defineOp(uint8_t op) {
   return define();
 }
 
+void reset() {
+  Serial.println("    Reset");
+  digitalWrite(RESET_PIN, LOW);
+  delay(10);
+  digitalWrite(RESET_PIN, HIGH);
+}
+
+void pulse() {
+  Serial.println("    Pulse");
+  digitalWrite(PULSE_PIN, LOW);
+  delay(10);
+  digitalWrite(PULSE_PIN, HIGH);  
+  delay(290);
+}
+
+byte readEEPROM(byte device, unsigned int address) {
+  Wire.beginTransmission(device); // e.g. 0x50
+  Wire.write(address);
+  Wire.endTransmission();
+  //delay(100);
+  Wire.requestFrom(device, (byte)1);
+  if (Wire.available()) return Wire.read();
+  return 0;
+}
+
+void readFromBoard() {
+  Serial.print("Chip 1 Parameter: ");
+  int p = readEEPROM(EEPROM_ADDRESS_1, 0);
+  Serial.println(p, HEX);
+  Serial.print("Chip 0      Main: ");
+  int b = readEEPROM(EEPROM_ADDRESS_0, 0);
+  Serial.println(b, HEX);
+  if (b) {
+    pulse();
+    readFromBoard();
+  }
+}
+
+void readSequence() {
+  Serial.println("READ SEQUENCE");
+  reset();
+  readFromBoard();
+}
+
+
+bool param = true;
+uint8_t readNextBlock() {
+#ifdef CONSOLE_MODE
+  Serial.println("    NEXT CONSOLE BLOCK");
+  delay(50); // enforce reading in batch
+  if (Serial.available() > 0) return Serial.read();
+  Serial.println("    END OF BLOCKS");
+  return 0;
+#else
+  Serial.println("    NEXT PHYSICAL BLOCK");
+  if (param) {
+    param = false;
+    int p = readEEPROM(EEPROM_ADDRESS_1, 0);
+    Serial.print("    Chip 1 Parameter: ");
+    Serial.println(p, HEX);
+    if (p) return p; else return readNextBlock();
+  } else {
+    param = true;
+    Serial.print("    Chip 0 Main: ");
+    int b = readEEPROM(EEPROM_ADDRESS_0, 0);
+    Serial.println(b, HEX);
+    if (b) pulse(); else Serial.println("    END OF BLOCKS");
+    return b;
+  }
+#endif
+}
+
 bool readBlocks() {
+  reset();
   here = dict;
-  while (here < MEM_SIZE && Serial.available() > 0) { // TODO: error when exceeding MAX_INSTRUCTIONS?
-    uint8_t b = Serial.read();
-    Serial.print("Read: ");
-    Serial.println(b, DEC);
+  uint8_t b;
+  do {
+    uint8_t b = readNextBlock();
+    if (b == 0) break;
+    Serial.print("    Read: ");
+    Serial.println(b, HEX);
     if (b == DEF_BLOCK) {
       // define new word
       uint8_t d = Serial.read();
-      Serial.print("Define: ");
-      Serial.println(d, DEC);
+      Serial.print("    Define: ");
+      Serial.println(d, HEX);
       append(RET);
       blocks[d] = define();
       return;
     } else {
       int16_t addr = blocks[b];
-      Serial.print("Call: ");
+      Serial.print("    Call: ");
       Serial.println(addr, DEC);
       append(addr >> 8 | 0x40);
       append(addr & 0xff);
     }
-    delay(50); // enforce reading in batch
-  }
+  } while(here < MEM_SIZE); // TODO: error when exceeding MAX_INSTRUCTIONS?
   if (here - dict > 0) {
     append(RET);
-    Serial.print("Execute blocks - address: ");
+    Serial.print("    Execute blocks - address: ");
     Serial.println(dict, DEC);
     exec(dict);
+    return true;
   }
+  return false;
 }
 
 void setup() {
+  pinMode(LED, OUTPUT);
+  pinMode(BUTTON, INPUT);
+  pinMode(RESET_PIN, OUTPUT);
+  pinMode(PULSE_PIN, OUTPUT);
   Serial.begin(9600);
+  Wire.begin();
+  pulse();
   // initialize primitive instructions
   for (int i = 0; i < MAX_PRIMITIVES; i++) bind(i, nop);
   bind(RET,     ret);
@@ -233,6 +328,7 @@ void setup() {
   bind(NOP,     nop);
   // initialize block call table
   for (int i = 0; i < MAX_BLOCKS; i++) blocks[i] = 0; // nop
+#ifdef CONSOLE_MODE
   blocks[0]   = defineOp(NOP);     // nop catch-all
   blocks[35]  = defineOp(LIT);     // #
   blocks[37]  = defineOp(MOD);     // %
@@ -259,8 +355,33 @@ void setup() {
   blocks[108] = defineOp(LEFT);    // l
   blocks[114] = defineOp(RIGHT);   // r
   blocks[116] = defineOp(TURN);    // t
+  delay(2000);
+  Serial.println("INITIALIZED (CONSOLE MODE)");
+#else
+  // physical block definitions
+  blocks[0x1b] = defineOp(FORWARD); // Forward
+  blocks[0x5b] = defineOp(CENTER); // Center
+  append(LIT); append(DIG1); append(DIG0); append(RET); blocks[0x38] = define(); // 10
+  append(LIT); append(DIG2); append(DIG0); append(RET); blocks[0x6b] = define(); // 20
+  delay(2000);
+  Serial.println("INITIALIZED (NORMAL MODE)");
+#endif
 }
 
+bool latch = false;
 void loop() {
-  readBlocks(); // TODO: trigger with button press
+  int button = digitalRead(BUTTON);
+  if (!latch && button == HIGH) {
+    latch = true;
+    digitalWrite(LED, HIGH);
+    Serial.println("");
+    Serial.println("-----------------------------------------------------------------------");
+    Serial.println("READ PROGRAM");
+    readBlocks();
+  } else {
+    if (button == LOW) {
+      latch = false;
+      digitalWrite(LED, LOW);
+    }
+  }
 }
