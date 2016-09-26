@@ -28,10 +28,11 @@ AccelStepper stepperY(HALF_STEP, MOTOR_PIN5, MOTOR_PIN7, MOTOR_PIN6, MOTOR_PIN8)
 #define BUTTON 4
 #define LED 13
 
-#define MIN_X -1000
-#define MAX_X  1000
-#define MIN_Y -1000
-#define MAX_Y  1000
+#define SIZE   225
+#define MIN_X -110
+#define MAX_X  110
+#define MIN_Y -110
+#define MAX_Y  110
 
 #define MEM_SIZE         512
 #define MAX_DATA_STACK   8
@@ -66,6 +67,8 @@ AccelStepper stepperY(HALF_STEP, MOTOR_PIN5, MOTOR_PIN7, MOTOR_PIN6, MOTOR_PIN8)
 #define RIGHT   24
 #define TURN    25
 #define TIMES   26
+#define RESET   27
+#define DUP     28
 #define NOP     31
 
 #define DEF_BLOCK 0x5B // define block ID (':' == 58)
@@ -110,7 +113,7 @@ void nine()  { Serial.println("9"); push(pop() * 10 + 9); }
 
 void show() { Serial.print("SHOW: "); Serial.println(pop(), DEC); }
 
-void add() { Serial.println("ADD"); push(pop() + pop()); }
+void add() { Serial.println("ADD"); push(pop() + pop()); dup(); show(); } // TODO: remove dup/show
 void sub() { Serial.println("SUB"); push(pop() - pop()); }
 void mul() { Serial.println("MUL"); push(pop() * pop()); }
 void div() { Serial.println("DIV"); push(pop() / pop()); }
@@ -130,8 +133,8 @@ void moveCNC(double dx, double dy) {
   Serial.print(" ");
   Serial.println(dy);
 #ifdef CNC
-  int distanceX = dx * MM;
-  int distanceY = dy * MM;
+  long distanceX = dx * MM;
+  long distanceY = dy * MM;
   long stepperSpeedX = STEPPER_SPEED;
   long stepperSpeedY = STEPPER_SPEED;
   if (abs(distanceX) >= abs(distanceY)) {
@@ -146,8 +149,8 @@ void moveCNC(double dx, double dy) {
   Serial.println(stepperSpeedY);
   stepperX.move(distanceX);
   stepperY.move(distanceY);
-  int stepsX = stepperX.distanceToGo();
-  int stepsY = stepperY.distanceToGo();
+  long stepsX = stepperX.distanceToGo();
+  long stepsY = stepperY.distanceToGo();
   while (stepsX != 0 || stepsY != 0) {
     stepperX.setSpeed(stepperSpeedX);
     stepperY.setSpeed(stepperSpeedY);
@@ -157,6 +160,13 @@ void moveCNC(double dx, double dy) {
     stepsY = stepperY.distanceToGo();
   }
 #endif
+}
+
+void resetCNC() {
+  Serial.println("RESET CNC");
+  moveCNC(SIZE, SIZE);
+  moveCNC(-MAX_X, -MAX_Y);
+  theta = x = y = lastX = lastY = 0.0;
 }
 
 void update() {
@@ -206,6 +216,7 @@ void times() {
     memset(pp, save); // replace call
   }
 }
+void dup() { Serial.println("DUP"); int16_t x = pop(); push(x); push(x); }
 
 void run() {
   int16_t i;
@@ -288,26 +299,6 @@ byte readEEPROM(byte device, unsigned int address) {
   return 0;
 }
 
-void readFromBoard() {
-  Serial.print("Chip 1 Parameter: ");
-  int p = readEEPROM(EEPROM_ADDRESS_1, 0);
-  Serial.println(p, HEX);
-  Serial.print("Chip 0      Main: ");
-  int b = readEEPROM(EEPROM_ADDRESS_0, 0);
-  Serial.println(b, HEX);
-  if (b) {
-    pulse();
-    readFromBoard();
-  }
-}
-
-void readSequence() {
-  Serial.println("READ SEQUENCE");
-  reset();
-  readFromBoard();
-}
-
-
 bool param = true;
 uint8_t readNextBlock() {
 #ifdef CONSOLE_MODE
@@ -369,6 +360,7 @@ bool readBlocks() {
     append(addr >> 8 | 0x40);
     append(addr & 0xff);
   } while(here < MEM_SIZE); // TODO: error when exceeding MAX_INSTRUCTIONS?
+  reset();
   if (here - dict > 0) {
     append(RET);
     Serial.print("    Execute blocks - address: ");
@@ -418,11 +410,14 @@ void setup() {
   bind(RIGHT,   right);
   bind(TURN,    turn);
   bind(TIMES,   times);
+  bind(RESET,   resetCNC);
+  bind(DUP,     dup);
   bind(NOP,     nop);
   // initialize block call table
-  for (int i = 0; i < MAX_BLOCKS; i++) blocks[i] = 0; // nop
+  uint16_t catchAll = defineOp(NOP);
+  for (int i = 0; i < MAX_BLOCKS; i++) blocks[i] = catchAll;
 #ifdef CONSOLE_MODE
-  blocks[0]   = defineOp(NOP);     // nop catch-all
+  blocks[0]   = catchAll;          // nop
   blocks[35]  = defineOp(LIT);     // #
   blocks[37]  = defineOp(MOD);     // %
   blocks[42]  = defineOp(MUL);     // *
@@ -453,8 +448,16 @@ void setup() {
 #else
   // physical block definitions
   blocks[0x1b] = blocks[0x0f] = defineOp(FORWARD); // Forward
+  blocks[0x25] = blocks[0x1f] = defineOp(BACK); // Back
   blocks[0x0d] = defineOp(LEFT); // Left
   blocks[0x3e] = defineOp(CENTER); // Center
+  blocks[0x52] = defineOp(RESET); // Reset
+  blocks[0x40] = defineOp(DUP); // Dup
+  blocks[0x2f] = defineOp(MOD); // Mod
+  blocks[0x2d] = defineOp(MUL); // Mul
+  blocks[0x2b] = defineOp(DIV); // Div
+  blocks[0x29] = defineOp(ADD); // Add
+  blocks[0x21] = defineOp(SUB); // Sub
   append(LIT); append(DIG1); append(RET); blocks[0x1c] = define(); // 1
   append(LIT); append(DIG2); append(RET); blocks[0x2c] = define(); // 2
   append(LIT); append(DIG3); append(RET); blocks[0x0c] = define(); // 3
