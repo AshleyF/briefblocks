@@ -14,6 +14,8 @@
 #define MOTOR_PIN6 10
 #define MOTOR_PIN7 11
 #define MOTOR_PIN8 12
+#define X_PIN A0
+#define Y_PIN A1
 #define MM 100.0
 #define STEPPER_SPEED 1000 // steps per second
 
@@ -25,17 +27,16 @@ AccelStepper stepperY(HALF_STEP, MOTOR_PIN5, MOTOR_PIN7, MOTOR_PIN6, MOTOR_PIN8)
 
 #define RESET_PIN 0
 #define PULSE_PIN 1
-#define BUTTON 4
-#define LED 13
+#define BUTTON 13
 
 #define SIZE   225
-#define MIN_X -110
-#define MAX_X  110
-#define MIN_Y -110
-#define MAX_Y  110
+#define MIN_X -100
+#define MAX_X  100
+#define MIN_Y -100
+#define MAX_Y  100
 
 #define MEM_SIZE         512
-#define MAX_DATA_STACK   8
+#define MAX_DATA_STACK   8 // circular stack (see below)
 #define MAX_RETURN_STACK 8
 #define MAX_BLOCKS       256
 #define MAX_PRIMITIVES   32
@@ -79,12 +80,18 @@ uint8_t mem(int16_t address) { return memory[address]; } // TODO: bounds check
 void memset(int16_t address, uint8_t value) { memory[address] = value; } // TODO: bounds check
 
 int16_t dstack[MAX_DATA_STACK];
-int16_t* s;
-void push(int16_t i) { *(++s) = i; } // TODO: overflow check
-int16_t pop() { return *s--; } // TODO: underflow check
+int16_t* s = dstack - 1;
+void push(int16_t i) {
+  if (s >= dstack + MAX_DATA_STACK - 1) s = dstack - 1; // wrap
+  *(++s) = i;
+}
+int16_t pop() {
+  return *s--;
+  if (s < dstack - 1) s = dstack + MAX_DATA_STACK - 1; // wrap
+}
 
 int16_t rstack[MAX_RETURN_STACK];
-int16_t* r;
+int16_t* r = rstack - 1;
 void rpush(int16_t i) { *(++r) = i; } // TODO: overflow check
 int16_t rpop() { return *r--; } // TODO: underflow check
 
@@ -237,6 +244,7 @@ void exec(int16_t address) {
   Serial.print("EXEC: ");
   Serial.println(address);
   r = rstack - 1; // reset return stack
+  s = dstack - 1; // reset data stack
   p = address;
   rpush(-1); // causing run() to fall through upon completion
   run();
@@ -372,7 +380,8 @@ bool readBlocks() {
 }
 
 void setup() {
-  pinMode(LED, OUTPUT);
+  pinMode(X_PIN, INPUT);
+  pinMode(Y_PIN, INPUT);
   pinMode(BUTTON, INPUT);
   pinMode(RESET_PIN, OUTPUT);
   pinMode(PULSE_PIN, OUTPUT);
@@ -447,9 +456,10 @@ void setup() {
   Serial.println("INITIALIZED (CONSOLE MODE)");
 #else
   // physical block definitions
-  blocks[0x1b] = blocks[0x0f] = defineOp(FORWARD); // Forward
+  blocks[0x1b] = blocks[0x0f] = blocks[0x05] = defineOp(FORWARD); // Forward
   blocks[0x25] = blocks[0x1f] = defineOp(BACK); // Back
-  blocks[0x0d] = defineOp(LEFT); // Left
+  blocks[0x0d] = blocks[0x01] = blocks[0x13] = defineOp(LEFT); // Left
+  blocks[0x09] = blocks[0x0b] = defineOp(RIGHT); // Right
   blocks[0x3e] = defineOp(CENTER); // Center
   blocks[0x52] = defineOp(RESET); // Reset
   blocks[0x40] = defineOp(DUP); // Dup
@@ -491,12 +501,21 @@ void setup() {
 #endif
 }
 
+void manual(int x, int y) {
+  int dx = x > 700 ? 1 : x < 300 ? -1 : 0;
+  int dy = y > 700 ? -1 : y < 300 ? 1 : 0;
+  if (dx != 0 || dy != 0) {
+    moveCNC(dx, dy);
+    theta = x = y = lastX = lastY = 0.0;
+  }
+}
+
 bool latch = false;
 void loop() {
+  manual(analogRead(X_PIN), analogRead(Y_PIN));
   int button = digitalRead(BUTTON);
-  if (!latch && button == HIGH) {
+  if (!latch && button == LOW) {
     latch = true;
-    digitalWrite(LED, HIGH);
     Serial.println("");
     Serial.println("-----------------------------------------------------------------------");
     Serial.println("READ PROGRAM");
@@ -504,7 +523,6 @@ void loop() {
   } else {
     if (button == LOW) {
       latch = false;
-      digitalWrite(LED, LOW);
     }
   }
 }
