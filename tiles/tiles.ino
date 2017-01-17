@@ -14,7 +14,7 @@ void writeEEPROM(byte device, unsigned int address, byte data) {
   Wire.write(address);
   Wire.write(data);
   Wire.endTransmission();
-  delay(10);
+  // delay(10);
 }
 
 byte readEEPROM(byte device, unsigned int address) {
@@ -27,9 +27,42 @@ byte readEEPROM(byte device, unsigned int address) {
   return 0;
 }
 
-void readTile(unsigned int address) {
-  byte b = readEEPROM(address, 0);
+unsigned int tileAddress(int num) {
+  switch (num) {
+    case 0: return EEPROM_ADDRESS_0;
+    case 1: return EEPROM_ADDRESS_1;
+    case 2: return EEPROM_ADDRESS_2;
+    case 3: return EEPROM_ADDRESS_3;
+    default: return 0; // TODO: error if not 0 >= num <= 3
+  }
+}
+
+void writeTile(int num, int addr, byte data) {
+  writeEEPROM(tileAddress(num), addr, data);
+}
+
+void readTile(int num, int addr) {
+  Serial.print("  Tile ");
+  Serial.print(num);
+  Serial.print(": ");
+  byte b = readEEPROM(tileAddress(num), addr);
   Serial.println(b);
+}
+
+void selectBank(int num) {
+  Serial.print("Bank ");
+  Serial.println(num);
+  digitalWrite(A_PIN, (num & 1) != 0 ? HIGH : LOW);
+  digitalWrite(B_PIN, (num & 2) != 0 ? HIGH : LOW);
+  digitalWrite(C_PIN, (num & 4) != 0 ? HIGH : LOW);
+  delay(10);
+}
+
+void testReadTiles(int num) {
+  selectBank(num);
+  for (int i = 0; i < 4; i++) {
+    readTile(i, 0);
+  }
 }
 
 void setup() {
@@ -39,65 +72,13 @@ void setup() {
   pinMode(B_PIN, OUTPUT);
   pinMode(C_PIN, OUTPUT);
 
-  digitalWrite(A_PIN, LOW);
-  digitalWrite(B_PIN, LOW);
-  digitalWrite(C_PIN, LOW);
-  delay(100);
-
-  //writeEEPROM(EEPROM_ADDRESS_0, 0, 2);
-  //writeEEPROM(EEPROM_ADDRESS_1, 0, 2);
+  //writeTile(1, 1, 1);
 
   Serial.println("Test -----------------------------------");
-  Serial.print("Bank 0, Tile 0 -> ");
-  readTile(EEPROM_ADDRESS_0);
-  Serial.print("Bank 0, Tile 1 -> ");
-  readTile(EEPROM_ADDRESS_1);
-  Serial.print("Bank 0, Tile 2 -> ");
-  readTile(EEPROM_ADDRESS_2);
-  Serial.print("Bank 0, Tile 3 -> ");
-  readTile(EEPROM_ADDRESS_3);
 
-  digitalWrite(A_PIN, HIGH);
-  digitalWrite(B_PIN, LOW);
-  digitalWrite(C_PIN, LOW);
-  delay(100);
-
-  Serial.print("Bank 1, Tile 0 -> ");
-  readTile(EEPROM_ADDRESS_0);
-  Serial.print("Bank 1, Tile 1 -> ");
-  readTile(EEPROM_ADDRESS_1);
-  Serial.print("Bank 1, Tile 2 -> ");
-  readTile(EEPROM_ADDRESS_2);
-  Serial.print("Bank 1, Tile 3 -> ");
-  readTile(EEPROM_ADDRESS_3);
-
-  digitalWrite(A_PIN, LOW);
-  digitalWrite(B_PIN, HIGH);
-  digitalWrite(C_PIN, LOW);
-  delay(100);
-
-  Serial.print("Bank 2, Tile 0 -> ");
-  readTile(EEPROM_ADDRESS_0);
-  Serial.print("Bank 2, Tile 1 -> ");
-  readTile(EEPROM_ADDRESS_1);
-  Serial.print("Bank 2, Tile 2 -> ");
-  readTile(EEPROM_ADDRESS_2);
-  Serial.print("Bank 2, Tile 3 -> ");
-  readTile(EEPROM_ADDRESS_3);
-
-  digitalWrite(A_PIN, HIGH);
-  digitalWrite(B_PIN, HIGH);
-  digitalWrite(C_PIN, LOW);
-  delay(100);
-
-  Serial.print("Bank 3, Tile 0 -> ");
-  readTile(EEPROM_ADDRESS_0);
-  Serial.print("Bank 3, Tile 1 -> ");
-  readTile(EEPROM_ADDRESS_1);
-  Serial.print("Bank 3, Tile 2 -> ");
-  readTile(EEPROM_ADDRESS_2);
-  Serial.print("Bank 3, Tile 3 -> ");
-  readTile(EEPROM_ADDRESS_3);
+  for (int i = 0; i < 8; i++) {
+    testReadTiles(i);
+  }
 }
 
 void loop() {
