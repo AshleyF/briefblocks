@@ -5,7 +5,8 @@
 //#define CONSOLE_MODE
 #define CNC
 
-#define HALF_STEP 8
+// #define STEP_TYPE 8 // half-step
+#define STEP_TYPE AccelStepper::FULL4WIRE
 #define MOTOR_PIN1 5
 #define MOTOR_PIN2 6
 #define MOTOR_PIN3 7
@@ -17,10 +18,10 @@
 #define X_PIN A0
 #define Y_PIN A1
 #define MM 100.0
-#define STEPPER_SPEED 1000 // steps per second
+#define STEPPER_SPEED 600 // steps per second
 
-AccelStepper stepperX(HALF_STEP, MOTOR_PIN1, MOTOR_PIN3, MOTOR_PIN2, MOTOR_PIN4);
-AccelStepper stepperY(HALF_STEP, MOTOR_PIN5, MOTOR_PIN7, MOTOR_PIN6, MOTOR_PIN8);
+AccelStepper stepperX(STEP_TYPE, MOTOR_PIN1, MOTOR_PIN3, MOTOR_PIN2, MOTOR_PIN4);
+AccelStepper stepperY(STEP_TYPE, MOTOR_PIN5, MOTOR_PIN7, MOTOR_PIN6, MOTOR_PIN8);
 
 #define EEPROM_ADDRESS_0 (byte)0x50 // 1010000
 #define EEPROM_ADDRESS_1 (byte)0x51 // 1010001
