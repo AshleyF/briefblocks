@@ -21,20 +21,16 @@
 
 #define LED_PIN 13
 
-#define RUN_PIN 0
+#define RUN_PIN A2
 unsigned long lastRunDebounce = 0;
-int lastRunState = LOW;
-int currentRunState = LOW;
-
-#define SAVE_PIN 1
-unsigned long lastSaveDebounce = 0;
-int lastSaveState = LOW;
-int currentSaveState = LOW;
+bool lastRunState = false;
+bool currentRunState = false;
 
 #define DEBOUNCE_DELAY 50
 
-// #define STEP_TYPE 8 // half-step
-#define STEP_TYPE AccelStepper::FULL4WIRE
+#define STEP_TYPE 8 // half-step
+//#define STEP_TYPE AccelStepper::FULL4WIRE
+#define DRIVE_FACTOR 3
 #define MOTOR_PIN1 6
 #define MOTOR_PIN2 7
 #define MOTOR_PIN3 8
@@ -46,8 +42,8 @@ int currentSaveState = LOW;
 #define MM 100.0
 #define STEPPER_SPEED 600 // steps per second
 
-#define X_PIN A0
-#define Y_PIN A1
+#define X_PIN A1
+#define Y_PIN A0
 
 AccelStepper stepperX(STEP_TYPE, MOTOR_PIN1, MOTOR_PIN3, MOTOR_PIN2, MOTOR_PIN4);
 AccelStepper stepperY(STEP_TYPE, MOTOR_PIN5, MOTOR_PIN7, MOTOR_PIN6, MOTOR_PIN8);
@@ -129,11 +125,15 @@ byte readEEPROM(byte device, byte addr) {
 }
 
 void writeEEPROM(byte device, byte addr, byte data) {
+  Serial.print("WRITE ");
+  Serial.print(addr);
+  Serial.print(" ");
+  Serial.println(data);
   Wire.beginTransmission(device); // e.g. 0x50
   Wire.write(addr);
   Wire.write(data);
   Wire.endTransmission();
-  delay(10); // have observed failures of consecutive writes to same tile without this
+  // delay(10); // have observed failures of consecutive writes to same tile without this
   // TODO: write consecutive bytes without end/begin
 }
 
@@ -156,19 +156,21 @@ byte readTile(int addr) {
 }
 
 void writeTile(int addr, byte data) {
-  //Serial.print("  Store ");
-  //Serial.print(addr);
-  //Serial.print(" = ");
-  //Serial.println(data);
+  Serial.print("  Store ");
+  Serial.print(addr);
+  Serial.print(" = ");
+  Serial.println(data);
   writeEEPROM(EEPROM_ADDRESS, addr, data);
 }
 
 void blinkLed() {
+  /*
   const int pause = 300;
   digitalWrite(LED_PIN, HIGH);
   delay(pause);
   digitalWrite(LED_PIN, LOW);
   delay(pause);
+  //*/
 }
 
 void userError() {
@@ -200,10 +202,15 @@ void saveToTile(int num) {
   }
 
   selectTile(num);
-  writeTile(0, here); // length
+  Wire.beginTransmission(EEPROM_ADDRESS);
+  Wire.write(0);
+  Wire.write(here);
+  //writeTile(0, here); // length
   for (int i = 0; i < here; i++) {
-    writeTile(i + 1, brief::memget(i));
+    Wire.write(brief::memget(i));
+    //writeTile(i + 1, brief::memget(i));
   }
+  Wire.endTransmission();
 }
 
 // append to memory from single tile
@@ -261,22 +268,14 @@ void loadFromTiles() {
   brief::memset(here, RETURN_INSTRUCTION);
 }
 
-void runPressed() {
-  Serial.println("RUN");
-  blinkLed();
-  loadFromTiles();
-  dumpMemory();
-  brief::exec(0);
-  blinkLed();
-}
-
-void savePressed() {
-  Serial.println("SAVE");
-  blinkLed();
+void saveAndRun() {
+  Serial.println("SAVE AND RUN");
+  //blinkLed();
   loadFromTiles();
   dumpMemory();
   saveToTile(15);
-  blinkLed();
+  brief::exec(0);
+  //blinkLed();
 }
 
 void dumpMemory() {
@@ -321,7 +320,7 @@ void briefHead() {
 
 void briefForward() {
   Serial.print("FORWARD ");
-  double d = brief::pop();
+  double d = brief::pop() * DRIVE_FACTOR;
   Serial.println(d);
   x += d * cos(theta / 180.0 * PI);
   y += d * sin(theta / 180.0 * PI);
@@ -377,10 +376,10 @@ void testMakeTileNumberSet() {
 }
 
 void joystick(int x, int y) {
-  int dx = x > 700 ? 1 : x < 300 ? -1 : 0;
-  int dy = y > 700 ? -1 : y < 300 ? 1 : 0;
+  int dx = x > 700 ? -1 : x < 300 ? 1 : 0;
+  int dy = y > 700 ? 1 : y < 300 ? -1 : 0;
   if (dx != 0 || dy != 0) {
-    moveCNC(dx, dy);
+    moveCNC(dy, dx);
     theta = x = y = lastX = lastY = 0.0;
   }
 }
@@ -398,7 +397,6 @@ void setup() {
   pinMode(LED_PIN, OUTPUT);
 
   pinMode(RUN_PIN, INPUT);
-  pinMode(SAVE_PIN, INPUT);
 
   pinMode(X_PIN, INPUT);
   pinMode(Y_PIN, INPUT);
@@ -414,18 +412,40 @@ void setup() {
   brief::bind(201, briefReadTile);
   brief::bind(202, briefWriteTile);
 
-  Serial.println("Test -----------------------------------");
+  // Serial.println("Test -----------------------------------");
   
   // testClearTiles();
   // testStoreSequence();
   // testMakeTileProgramSet();
   // testMakeTileNumberSet();
   
-  loadFromTiles();
-  dumpMemory();
-  saveToTile(15);
+  // loadFromTiles();
+  // dumpMemory();
+  // saveToTile(15);
 
-  brief::exec(0);
+  // brief::exec(0);
+
+  /* save literal
+  selectTile(14);
+  writeTile(0, 2); // length
+  writeTile(1, LIT8_INSTRUCTION);
+  writeTile(2, 90);
+  //*/
+
+  /* save instructionr
+  selectTile(14);
+  writeTile(0, 1); // length
+  writeTile(1, 100); // forward
+  selectTile(13);
+  writeTile(0, 1); // length
+  writeTile(1, 101); // left
+  selectTile(12);
+  writeTile(0, 1); // length
+  writeTile(1, 102); / right
+  selectTile(11);
+  writeTile(0, 1); // length
+  writeTile(1, 255); // repeat
+  //*/
 }
 
 void loop() {
@@ -433,23 +453,15 @@ void loop() {
 
   joystick(analogRead(X_PIN), analogRead(Y_PIN));
 
-  int runState = digitalRead(RUN_PIN);
+  bool runState = (analogRead(RUN_PIN) == 0);
   if (runState != lastRunState) lastRunDebounce = millis();
   if ((millis() - lastRunDebounce) > DEBOUNCE_DELAY) {
     if (runState != currentRunState) {
       currentRunState = runState;
-      if (runState == HIGH) runPressed();
+      if (runState) {
+        saveAndRun();
+      }
     }
   }
   lastRunState = runState;
-
-  int saveState = digitalRead(SAVE_PIN);
-  if (saveState != lastSaveState) lastSaveDebounce = millis();
-  if ((millis() - lastSaveDebounce) > DEBOUNCE_DELAY) {
-    if (saveState != currentSaveState) {
-      currentSaveState = saveState;
-      if (saveState == HIGH) savePressed();
-    }
-  }
-  lastSaveState = saveState;
 }
