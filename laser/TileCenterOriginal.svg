@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   xmlns:dc="http://purl.org/dc/elements/1.1/"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   width="210mm"
+   height="297mm"
+   viewBox="0 0 744.09448819 1052.3622047"
+   id="svg2"
+   version="1.1"
+   inkscape:version="0.91 r13725"
+   sodipodi:docname="TileCenterOriginal.svg">
+  <defs
+     id="defs4" />
+  <sodipodi:namedview
+     id="base"
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1.0"
+     inkscape:pageopacity="0.0"
+     inkscape:pageshadow="2"
+     inkscape:zoom="11.2"
+     inkscape:cx="124.13733"
+     inkscape:cy="916.58515"
+     inkscape:document-units="px"
+     inkscape:current-layer="layer1"
+     showgrid="false"
+     inkscape:window-width="2498"
+     inkscape:window-height="1577"
+     inkscape:window-x="54"
+     inkscape:window-y="175"
+     inkscape:window-maximized="1" />
+  <metadata
+     id="metadata7">
+    <rdf:RDF>
+      <cc:Work
+         rdf:about="">
+        <dc:format>image/svg+xml</dc:format>
+        <dc:type
+           rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+        <dc:title></dc:title>
+      </cc:Work>
+    </rdf:RDF>
+  </metadata>
+  <g
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer"
+     id="layer1">
+    <path
+       style="fill:none;fill-opacity:1;stroke:#000000;stroke-width:0.35433072;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+       d="m 118.88762,87.170639 a 31.720192,31.720192 0 0 0 -31.718743,31.720701 31.720192,31.720192 0 0 0 0.006,0.15625 31.720192,31.720192 0 0 0 0,0.0117 l 0,56.36719 c 0,1.95215 1.57129,3.52344 3.52344,3.52344 l 56.378893,0 c 1.95215,0 3.52539,-1.57129 3.52539,-3.52344 l 0,-56.37891 c 0,-0.005 -0.002,-0.009 -0.002,-0.0137 a 31.720192,31.720192 0 0 0 0.008,-0.14258 31.720192,31.720192 0 0 0 -31.7207,-31.720701 z"
+       id="rect4153"
+       inkscape:connector-curvature="0" />
+    <rect
+       style="fill:none;stroke:#000000;stroke-width:0.10149103;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+       id="rect4179"
+       width="53.048115"
+       height="42.418194"
+       x="92.364685"
+       y="132.05293"
+       rx="3.6584909"
+       ry="3.5348494" />
+    <rect
+       style="fill:none;stroke:#000000;stroke-width:0.10987092;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1"
+       id="rect4195"
+       width="49.496429"
+       height="17.606665"
+       x="94.140526"
+       y="163.30067" />
+  </g>
+</svg>
